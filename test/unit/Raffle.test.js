@@ -1,6 +1,6 @@
 
 const { assert } = require("chai")
-const { getNamedAccounts, deployments, ethers } = require("hardhat")
+const { getNamedAccounts, deployments, ethers, network } = require("hardhat")
 const { developmentChains, networkConfig } = require("../../helper-hardhat-config")
 
 !developmentChains.includes(network.name)
@@ -12,10 +12,8 @@ const { developmentChains, networkConfig } = require("../../helper-hardhat-confi
         beforeEach(async function () {
             const { deployer } = await getNamedAccounts()
             await deployments.fixture(["all"])
-            raffle = await ethers.getContract("Raffle", deployer)
-            vrfCoordinatorV2Mock = await ethers.getContract("VRFCoordinatorV2Mock", deployer)
-
-
+            raffle = await ethers.getContract("Raffle")
+            vrfCoordinatorV2Mock = await ethers.getContract("VRFCoordinatorV2Mock")
         })
          
         describe("constructor", async function  () {
@@ -25,9 +23,6 @@ const { developmentChains, networkConfig } = require("../../helper-hardhat-confi
                 assert.equal(raffleState.toString(), "0")
                 assert.equal(interval.toString(), networkConfig[chainId])["interval"]
             })
-           
-           
-
         })
 
      })
