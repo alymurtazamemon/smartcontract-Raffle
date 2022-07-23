@@ -1,0 +1,287 @@
+Smartcontract-lottery
+create new folder mkdir=>
+creat a new hardhat project using yarn add --dev hardhat@2.9.3
+yarn=> open empty folder add all dependecies.
+then add all the installed dependecies into Hardhat.config.js with require command, 
+change Solidity version 
+create a new folder called contract(store all contracts)==>create a new file=> Raffle.sol
+
+hARDHAT SHORTHAND
+yarn global add hardhat-shortand
+we can run hh compile instead of yarn hardhat compile
+
+//Enter the lottery(paying some amount)
+//pick a random winner (verifiably random)
+//winner to be selected every x minutes==> completly automated
+//chainlink oracle = Randomness, Automated Execution (Chainlink Keeper)
+
+
+
+//SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+ 
+//import chainlink code of Random number generator
+
+import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
+import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/KeeperCompatibleInterface.sol";
+
+error  Raffle__NotEnoughETHEntered();
+error  Raffle__TransferFailed();
+error  Raffle__NotOpen();
+error  Raffle__UpKeepNotNeeded(uint256 currentBalance, uint256 numPlayers, uint256 rafflestate);
+ //Raffle=contract
+ //TransferFailed=error message
+// we will inherit the VRFconsumerBaseV2 contract
+//our contract must inherit the above
+//our function fulfillRandomWords has the following (uint256 requestId, uint256[] memory randomWords)
+//the following arg will be passed into the function bellow
+// from the Doc the constructor has vrfCoordinator which is the address of the
+// contract that does the verification
+//vrfCoordinator to constructor
+
+ contract Raffle is VRFConsumerBaseV2, KeeperCompatibleInterface { 
+   
+   
+   /* state Variables */
+
+
+   enum RaffleState {
+      OPEN,
+      CALCULATING
+   }
+   // uint256 0= OPEN, 1= CALCULATING
+   
+   
+    /* state Variables */
+
+    uint256 private immutable i_entranceFee;
+    //i_entrance is immutable or constant so it doesnot cost lot of Gas
+//add array of entrance or player then make it payable
+    address payable[] private s_players;
+    //if any of these players wins we have to pay them, so we make it paybel
+    
+    //add the imported coordnatorV2interface
+    VRFCoordinatorV2Interface private immutable i_vrfCoordinator;
+    //we can save the above using the address in the constructor
+//new stateVariables
+     bytes32 private immutable i_gaslane;
+      uint64 private immutable i_subscriptionId;
+      uint32 private immutable i_callbackGasLimit;
+      uint16 private constant REQUEST_CONFIRMATIONS = 3;
+      uint32 private constant NUM_WORDS = 1;
+
+
+    //Lottery Variables
+    address private s_recentWinner;
+    //uint256 private s_state;  // to pending, open, closed, calculating
+    RaffleState private s_raffleState;
+    uint256 private s_lastTimeStamp;
+    uint256 private immutable i_interval;
+
+  /* Events */
+// Revers the Name of enterRaffle function
+event RaffleEnter(address indexed player);
+//go to Enter Raffle function and Emit
+   
+//RequestId event
+event RequestedRaffleWinner(uint256 indexed requestId);
+//Keep track of previous winners
+event WinnerPicked(address indexed winner);
+
+
+constructor( 
+     address vrfCoordinatorV2,
+     uint256 entranceFee, 
+     bytes32 gaslane,
+     uint256 interval,
+     uint64 subscriptionId,
+     uint32 callbackGasLimit
+
+
+
+  ) VRFConsumerBaseV2(vrfCoordinatorV2)  {
+// we define variables
+   i_entranceFee = entranceFee;
+//use i_entranceFee to read cheap gas wise 
+ //vrcoodinator address will passed into constructor
+ //pass vrcoodinator as parameter TO VRFCBV2
+//save vrfCoordinator with address from constructor
+   i_vrfCoordinator = VRFCoordinatorV2Interface(vrfCoordinatorV2);
+   //we will set the vrfc just one time in our constructor so we make it immutable
+   i_gaslane = gaslane;
+   i_subscriptionId = subscriptionId;
+   i_callbackGasLimit = callbackGasLimit; 
+   s_raffleState = RaffleState.OPEN;
+   s_lastTimeStamp  = block.timestamp;
+   i_interval  =     interval;
+
+
+} 
+
+
+function enterRaffle() public payable {
+    //use Error code, declare it above Raffle__NotEnoughETHEntered();
+    // so it will be gas effecient
+    //Make the above Function payable since we are sending Eth
+
+    if(msg.value < i_entranceFee){
+        revert Raffle__NotEnoughETHEntered();
+        }
+        
+        //in other to keep track of all the players we need to add an array of players
+        if (s_raffleState != RaffleState.OPEN){
+
+         revert Raffle__NotOpen();
+        }
+        
+        s_players.push(payable(msg.sender));
+        //msg.sender = address, s_players.push(address)
+        //msg.sender is not payable, so add payable
+        //lets add Events,
+        //The Events are emiited to a data storage outside the smart contract
+        /*
+        @NOTE:Named events with the function NAME reversed as displayed above the contructor
+        */
+        /* Emit*/
+        emit RaffleEnter(msg.sender);
+} 
+
+
+//for Automation
+
+/**
+* @dev This is the function that the chainlink keeper nodes call
+   they look for the `upkeepNeeded` to return true.
+   the following should be true in order to return true;
+   1.our time interval should have passed
+   2.The lottery should have at least 1 player, and have some Eth
+   3. our subscription is funded with Link
+ */
+ function checkUpkeep(bytes memory /*checkData*/) 
+ public 
+ override
+  returns(bool upKeepNeeded, bytes memory /*performData*/) {
+  bool isOpen = (RaffleState.OPEN == s_raffleState);
+  bool timePassed = ((block.timestamp - s_lastTimeStamp) > i_interval);
+  bool hasPlayers = (s_players.length > 0);
+  bool hasBalance = address(this).balance > 0;
+   upKeepNeeded = (isOpen && timePassed && hasPlayers && hasBalance);
+
+
+
+ }
+// function RequestRandomWinner{}
+//now we need chainlink keepers to pick Random winners
+ 
+
+ function performUpKeep (bytes calldata /*performData*/
+ ) external override{
+    (bool upKeepNeeded, ) = checkUpkeep("");
+    if(! upKeepNeeded) {
+
+         revert Raffle__UpKeepNotNeeded(address(this).balance, s_players.length,uint256(s_raffleState));
+    }
+     //external to optitize gas usage
+    //Request the random number
+ // once we get do something with it
+ //chainlink vrf is a 2 transaction process
+ // its 2 because we dont want any one to manipulate the numbers
+//To call RequestRandom we need to import Co-ordinator contract
+//which is the VRFCoordinatorV2Interface
+      //Request Random words
+      s_raffleState = RaffleState.CALCULATING;
+      uint256 requestId = i_vrfCoordinator.requestRandomWords(
+         // the requestRandomWords function returns a uint256requestId
+         //unique id that defines who requesting.
+         //create a new Event at the top with the requestId
+
+        i_gaslane, // gaslane or keyHash lets make gaslane parameter of our constructor
+        i_subscriptionId, // subscribtion id, subscription we need to fund our request define it in constructor
+         REQUEST_CONFIRMATIONS,// make this constant
+         i_callbackGasLimit,// how much gas to be used for callback request
+                          //it helps us to spend less gas
+        NUM_WORDS// how many number of words we want to get
+
+      );
+         
+
+        emit RequestedRaffleWinner(requestId);
+        //this function will request random winner using Chainlinks vrf
+      // we need to update our code so RequestRaffleWinner happens automatically 
+      //using chainlink keepers
+
+
+ }
+
+ function fulfillRandomWords(uint256,/* requestId*/uint256[] memory randomWords ) 
+internal override {
+ //when we get the random number, we need to pick the random winner
+ //we will pick a randomwinner from the s_players array using
+ //modulo,%==> we use this to get a random number out of s_Players Array
+// we wont use requestedId
+
+ uint256 indexOfWinner = randomWords[0] % s_players.length;
+ address payable recentWinner = s_players[indexOfWinner];
+ //recentWinner is the address of the person that got the random
+ //our verifyable winner.
+ //lets create a new state variable called lottery and define the above
+ //update
+ s_recentWinner = recentWinner;
+ //we want people to know who the recent winner is
+  //Lets create a new function getRecentWinner() below
+//lets send the money 
+s_raffleState = RaffleState.OPEN;
+s_players = new address payable[](0);
+s_lastTimeStamp = block.timestamp;
+ (bool  success, ) = recentWinner.call{value: address(this).balance}("");
+ //address  (this).balance money in this contract
+  if(!success){
+    revert Raffle__TransferFailed();
+  }
+   //we now know the winner,but we cant keep track of the prvious winners
+   //lets create a new event in *eVENTS*
+    emit WinnerPicked( recentWinner );
+
+ }
+
+
+ 
+
+
+
+/* view / pure function */
+function getEntranceFee() public view returns(uint256){
+
+ return i_entranceFee;
+
+}
+
+function getPlayer(uint256 index) public view returns(address){
+
+    return s_players[index];
+}
+
+function getRecentWinner() public view returns (address) {
+   return s_recentWinner;
+}
+
+function getRaffleState() public view returns (RaffleState){
+   return s_raffleState;
+} 
+ 
+ function getNumWords() public pure returns (uint256){
+   return NUM_WORDS;
+ }
+ 
+  function getNumberOfPlayers() public view returns (uint256){
+   return s_players.length;
+  }
+  function  getLatestTimeStamp() public view returns (uint256){
+   return s_lastTimeStamp;
+  }
+
+  function getRequestConfirmation() public pure returns(uint256){
+   return REQUEST_CONFIRMATIONS;
+  }
+}
